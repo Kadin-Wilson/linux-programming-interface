@@ -4,6 +4,10 @@
 #include <assert.h>
 #include <stdbool.h>
 
+#ifndef FREE_TAIL_SIZE
+#define FREE_TAIL_SIZE 1024
+#endif
+
 typedef struct node {
     struct node *prev;
     struct node *next;
@@ -23,34 +27,52 @@ mem_node free_list_tail = {
     .size = 0,
 };
 
-void *heap_end = NULL;
+char *heap_end = NULL;
 
 void place_node(mem_node *n);
 
 void *check_free_list(size_t size);
 
 void *allocate(size_t size) {
-    mem_node *n = check_free_list(size);
+    size_t raw_size = size + sizeof(mem_node);
 
+    mem_node *n = check_free_list(raw_size);
+
+    // nothing big enough on the free list, need to allocate
     if (n == NULL) {
-        n = sbrk(size + sizeof *n);
-
+        n = sbrk(raw_size);
         if (n == (void*)-1) {
             return NULL;
         }
 
-        heap_end = (void*)n + (size + sizeof *n);
+        heap_end = (char*)n + (raw_size);
     }
 
     n->prev = NULL;
     n->next = NULL;
-    n->size = size + sizeof *n;
+    n->size = raw_size;
 
     return n + 1;
 }
 
 void deallocate(void *mem) {
     place_node((mem_node*)mem - 1);
+
+    mem_node *last = free_list_tail.prev;
+    if ((char*)last + last->size == heap_end && last->size > FREE_TAIL_SIZE) {
+        // we still need this data after adjusting the break
+        mem_node *prev_last = last->prev;
+        size_t free_bytes = last->size;
+
+        void *old_end = sbrk(-free_bytes);
+        if (old_end == (void*)-1) { // break doesn't move on error
+            return;
+        }
+
+        heap_end -= free_bytes;
+        free_list_tail.prev = prev_last;
+        prev_last->next = &free_list_tail;
+    }
 }
 
 void place_node(mem_node *n) {
@@ -109,10 +131,11 @@ int main() {
         }
     }
 
-    static char out[10 * 13 * 200];
+    static char out[10 * 20 * 200];
     char *s = out;
 
     int order[10] = {3, 7, 9, 0, 2, 1, 5, 8, 4, 6};
+
     for (int i = 0; i < 10; i++) {
         s += sprintf(
             s,
@@ -120,8 +143,18 @@ int main() {
             (mem_node*)mem[order[i]] - 1, 
             (order[i] + 1) * 100 + sizeof(mem_node)
         );
+        s += sprintf(
+            s,
+            "\t--- heap_end before: %p ---\n",
+            heap_end
+        );
         deallocate(mem[order[i]]);
         s += sprint_free_list(s);
+        s += sprintf(
+            s,
+            "\t--- heap_end after: %p ---\n",
+            heap_end
+        );
     }
 
     printf("%s", out);
