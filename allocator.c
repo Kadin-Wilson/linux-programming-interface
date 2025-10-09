@@ -54,36 +54,30 @@ void deallocate(void *mem) {
 }
 
 void place_node(mem_node *n) {
-    for (mem_node *cn = free_list.next; cn != &free_list_tail; cn = cn->next) {
-        // before cn
-        if ((char*)n + n->size < (char*)cn) {
-            n->next = cn;
-            n->prev = cn->prev;
-            cn->prev->next = n;
-            cn->prev = n;
-            return;
-        }
-        // merge left
-        if ((char*)n + n->size <= (char*)cn + cn->size) {
-            n->next = cn->next;
-            n->prev = cn->prev;
-            n->size += cn->size;
-            cn->next->prev = n;
-            cn->prev->next = n;
-            return;
-        }
-        // merge right
-        if ((char*)n <= (char*)cn + cn->size) {
-            cn->size += n->size;
-            return;
-        }
+    // place node
+    mem_node *cn = free_list.next;
+    while (cn != &free_list_tail && n > cn) {
+        cn = cn->next;
+    }
+    n->next = cn;
+    n->prev = cn->prev;
+    cn->prev->next = n;
+    cn->prev = n;
+
+    // merge right
+    while (n->next != &free_list_tail && (char*)n + n->size >= (char*)n->next) {
+        n->next->next->prev = n;
+        n->size += n->next->size;
+        n->next = n->next->next;
     }
 
-    // add to end of list
-    free_list_tail.prev->next = n;
-    n->prev = free_list_tail.prev;
-    n->next = &free_list_tail;
-    free_list_tail.prev = n;
+    // merge left
+    while (n->prev != &free_list && (char*)n <= (char*)n->prev + n->prev->size) {
+        n->prev->size += n->size;
+        n->prev->next = n->next;
+        n->next->prev = n->prev;
+        n = n->prev;
+    }
 }
 
 void *check_free_list(size_t size) {
