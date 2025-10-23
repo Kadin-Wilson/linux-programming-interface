@@ -3,8 +3,18 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define INITIAL_LIST_SIZE 100
+
+const char *USAGE =
+    "usage:\n\n"
+    "PROGRAM_NAME DIRECTORY_PATH\n\n"
+    "the program walks the given directory tree,\n"
+    "counting the number of files of each size.\n"
+    "the program prints these counts followed by\n"
+    "the average, median, and mode sizes.\n"
+        ;
 
 typedef struct {
     size_t sz;
@@ -84,24 +94,68 @@ int get_file_size(const char *fpath, const struct stat *sb, int typeflag, struct
     return 0;
 }
 
-const char *size_unit(size_t size) {
+const char *size_unit(double blocks) {
     static char s[100];
     static const char *suffix[4] = { "KB", "MB", "GB", "TB" };
 
-    double sz = size >> 1;
+    blocks = blocks / 2;
 
     int i = 0;
-    while (sz > 1000 & i < 3) {
+    while (blocks > 1024 & i < 3) {
         i++;
-        sz /= 1000;
+        blocks /= 1024;
     }
 
-    sprintf(s, "%7.4lg%s", sz, suffix[i]);
+    sprintf(s, "%7.4lg%s", blocks, suffix[i]);
 
     return s;
 }
 
+double mean(file_list *l) {
+    size_t sum = 0;
+    size_t count = 0;
+    for (size_t i = 0; i < l->len; i++) {
+        sum += l->d[i].sz * l->d[i].ct;
+        count += l->d[i].ct;
+    }
+
+    return (double)sum / count;
+}
+
+double median(file_list *l) {
+    size_t count = 0;
+    for (size_t i = 0; i < l->len; count += l->d[i++].ct)
+        ;
+
+    size_t ii = 0; // imaginary position in a flat list
+    size_t ri = 0; // real position in actual list
+    for (; ii < count / 2; ii += l->d[ri++].ct)
+        ;
+
+    if (count % 2 != 0 || ii > count / 2) {
+        return l->d[ri - 1].sz;
+    }
+
+    return (double)(l->d[ri - 1].sz + l->d[ri].sz) / 2;
+}
+
+double mode(file_list *l) {
+    size_count *mode_p = l->d;
+    for (size_t i = 0; i < l->len; i++) {
+        if (l->d[i].ct > mode_p->ct) {
+            mode_p = list->d + i;
+        }
+    }
+
+    return mode_p->sz;
+}
+
 int main(int argc, char **argv) {
+    if (argc < 2 || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")) {
+        fputs(USAGE, stderr);
+        return EXIT_FAILURE;
+    }
+
     if (argc != 2) {
         fputs("must supply exactly one directory path\n", stderr);
         return EXIT_FAILURE;
@@ -119,13 +173,10 @@ int main(int argc, char **argv) {
         printf("%s %zu\n", size_unit(list->d[i].sz), list->d[i].ct);
     }
 
-    size_t sum = 0;
-    size_t count = 0;
-    for (size_t i = 0; i < list->len; i++) {
-        sum += list->d[i].sz * list->d[i].ct;
-        count += list->d[i].ct;
-    }
-    printf("%9s\n%s\n", "avg", size_unit(sum / count));
+    printf("%*s %*s %*s\n", 9, "avg", 9, "med", 9, "mod");
+    printf("%s ", size_unit(mean(list)));
+    printf("%s ", size_unit(median(list)));
+    printf("%s\n", size_unit(mode(list)));
 
     free(list);
 
